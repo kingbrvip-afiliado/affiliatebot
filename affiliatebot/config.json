@@ -1,0 +1,50 @@
+{
+  "sources": {
+    "telegram": [
+      "@wolf_ofertas",
+      "@achadinhosafiliadosss",
+      "@clubedeofertasss",
+      "@gatunopromos",
+      "@urubupromo"
+    ],
+    "twitter": [
+      "@xetdaspromocoes",
+      "@achadinhos_dadu",
+      "@achadinhodasho",
+      "@acheinaxo",
+      "@capivarapromoss",
+      "@buscopobres",
+      "@oigatuna",
+      "@lobaopromo"
+    ]
+  },
+  "targets": {
+    "twitterHandle": "@kingbrvip",
+    "twitterEnabled": true,
+    "telegramGroups": ["@KingBRVip10"]
+  },
+  "affiliates": {
+    "mercadolivre": {
+      "trackingId": "aler8930883",
+      "enabled": true
+    },
+    "shopee": {
+      "username": "kingbrvip",
+      "affiliateId": "18325130155",
+      "apiKey": "",
+      "enabled": true
+    }
+  },
+  "post": {
+    "addEmojis": true,
+    "callToAction": "👇 Garanta o seu agora:",
+    "footer": "🔔 Siga @kingbrvip pra mais ofertas todo dia!",
+    "maxTextLength": 4096
+  },
+  "filters": {
+    "minDiscountPercent": 0,
+    "allowedPlatforms": ["mercadolivre", "shopee"],
+    "requiredKeywords": [],
+    "blockedKeywords": []
+  }
+}
