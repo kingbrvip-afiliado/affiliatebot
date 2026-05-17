@@ -240,14 +240,40 @@ async function generateAffiliateLink(url) {
 // ─── Publishers ───────────────────────────────────────────────
 const pubBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
 
+function safeMd(text) {
+  // Remove or close any unclosed markdown chars to prevent Telegram parse errors
+  return (text || '')
+    .replace(/([_*`])/g, '\\$1')  // escape special chars
+    .replace(/\\\*\\\*/g, '*')     // restore **bold** → *bold*
+    .replace(/\\\*/g, '*');        // restore *italic*
+}
+
 async function publishTelegram(text, imageUrl, groups) {
   const results = [];
   for (const g of groups) {
     try {
-      if (imageUrl) {
-        try { await pubBot.sendPhoto(g, imageUrl, { caption: text, parse_mode: 'Markdown' }); results.push({ g, ok: true }); continue; } catch (_) {}
+      // Try with Markdown first, fall back to plain text if parse error
+      const sendMsg = async (parseMode) => {
+        if (imageUrl) {
+          try {
+            await pubBot.sendPhoto(g, imageUrl, { caption: text, parse_mode: parseMode });
+            return true;
+          } catch (_) {}
+        }
+        await pubBot.sendMessage(g, text, { parse_mode: parseMode, disable_web_page_preview: false });
+        return true;
+      };
+
+      try {
+        await sendMsg('Markdown');
+      } catch (_) {
+        // Fall back to plain text if Markdown fails
+        const plain = text.replace(/[*_`]/g, '');
+        if (imageUrl) {
+          try { await pubBot.sendPhoto(g, imageUrl, { caption: plain }); results.push({ g, ok: true }); continue; } catch (_2) {}
+        }
+        await pubBot.sendMessage(g, plain, { disable_web_page_preview: false });
       }
-      await pubBot.sendMessage(g, text, { parse_mode: 'Markdown', disable_web_page_preview: false });
       results.push({ g, ok: true });
     } catch (e) { results.push({ g, ok: false, error: e.message }); }
   }
