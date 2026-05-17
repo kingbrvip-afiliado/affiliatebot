@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 // ─── Config ──────────────────────────────────────────────────
 const config = {
   sources: {
-    telegram: ["@wolf_ofertas","@achadinhosafiliadosss","@clubedeofertasss","@gatunopromos","@urubupromo"],
+    telegram: ["@wolf_ofertas","@achadinhosafiliadosss","@clubedeofertasss","@gatunopromos","@urubupromo","@xetdaspromocoes"],
     twitter:  ["@xetdaspromocoes","@achadinhos_dadu","@achadinhodasho","@acheinaxo","@capivarapromoss","@buscopobres","@oigatuna","@lobaopromo"]
   },
   targets: {
@@ -108,19 +108,26 @@ const f = (post, camel, snake) => post[camel] !== undefined ? post[camel] : post
 function extractLinks(text) {
   if (!text) return { hasProductLink: false, firstProductLink: null, source: 'unknown' };
 
-  const ml     = text.match(/https?:\/\/[^\s<>"]*(?:mercadolivre\.com\.br|mercadolibre\.com|meli\.store|click\.mlcdn\.com\.br)[^\s<>"]*/gi) || [];
-  const shopee = text.match(/https?:\/\/[^\s<>"]*(?:shopee\.com\.br|shope\.ee|s\.shopee\.com\.br)[^\s<>"]*/gi) || [];
+  // Extract ALL URLs first
+  const allUrls = text.match(/https?:\/\/[^\s<>"'\]]+/gi) || [];
 
-  // Also try to extract any URL if no product link found
-  const anyUrl = text.match(/https?:\/\/[^\s<>"]+/gi) || [];
+  const ML_PATTERNS    = /mercadolivre\.com\.br|mercadolibre\.com|meli\.st|meli\.la|meli\.store|click\.mlcdn|produto\.mercadolivre|mlcdn\.com|mercadoshops/i;
+  const SHOPEE_PATTERNS = /shopee\.com\.br|shope\.ee|s\.shopee\.com\.br/i;
+
+  const ml     = allUrls.filter(u => ML_PATTERNS.test(u));
+  const shopee = allUrls.filter(u => SHOPEE_PATTERNS.test(u));
+
+  // ML has priority
+  const hasML     = ml.length > 0;
+  const hasShopee = shopee.length > 0;
 
   return {
     mlLinks:          ml,
     shopeeLinks:      shopee,
-    hasProductLink:   ml.length > 0 || shopee.length > 0,
+    hasProductLink:   hasML || hasShopee,
     firstProductLink: ml[0] || shopee[0] || null,
-    source:           ml.length > 0 ? 'mercadolivre' : shopee.length > 0 ? 'shopee' : 'unknown',
-    anyUrls:          anyUrl,
+    source:           hasML ? 'mercadolivre' : hasShopee ? 'shopee' : 'unknown',
+    allUrls,
   };
 }
 
@@ -188,12 +195,73 @@ function formatTelegram(post, link) {
 }
 
 function formatTwitter(post, link) {
-  const name = (f(post, 'productName', 'product_name') || '').slice(0, 55);
-  const pb   = priceBlock(post).replace(/\*/g, '');
-  const suffix = ' | t.me/KingBRVip10';
-  let body = name && pb ? `${rnd(OPENERS)}\n${name}\n${pb}` : name ? `${rnd(OPENERS)}\n${name}` : `${rnd(OPENERS)}\n${pb}`;
-  if (body.length > 200) body = `${rnd(OPENERS)}\n${name.slice(0, 40)}…`;
-  return `${body}\n${rnd(CTAS)} ${link}${suffix}`.trim();
+  const name     = (f(post, 'productName', 'product_name') || '').trim();
+  const price    = f(post, 'salePrice',    'sale_price');
+  const origPrice= f(post, 'originalPrice','original_price');
+  const discount = post.discount;
+  const raw      = f(post, 'rawContent',   'raw_content') || '';
+  const source   = f(post, 'sourceType',   'source_type');
+
+  // Source label
+  const sourceLabel = source === 'shopee' ? 'Achado na Shopee 🟠' : 'Achado no Mercado Livre 🟡';
+
+  // Opener — rotativo e chamativo
+  const OPENERS_TW = [
+    '🔥 IMPERDÍVEL‼️', '⚡ CORRE‼️', '😱 QUE PREÇO‼️',
+    '🚨 OFERTA URGENTE‼️', '🤑 TÁ BARATO‼️', '💥 ACHADO DO DIA‼️',
+    '🎯 OLHA ESSE PREÇO‼️', '👀 NÃO PASSA NÃO‼️',
+  ];
+  const opener = rnd(OPENERS_TW);
+
+  // Price lines
+  let priceLine = '';
+  if (price) priceLine = `R$${fmtBRL(price).replace('R$','').trim()}`;
+
+  let fromTo = '';
+  if (origPrice && price && origPrice > price) {
+    fromTo = `De R$${fmtBRL(origPrice).replace('R$','').trim()} | Por R$${fmtBRL(price).replace('R$','').trim()}`;
+    if (discount) fromTo += ` (${discount}% OFF)`;
+  }
+
+  // Coupon detection
+  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{4,20})/i);
+  const couponLine  = couponMatch ? `\nCupom: ${couponMatch[1].toUpperCase()}` : '';
+
+  // Payment info
+  const payLine = [];
+  if (/sem juros|parcelado/i.test(raw)) payLine.push('sem juros');
+  if (/frete gr[áa]tis|entrega gr[áa]tis/i.test(raw)) payLine.push('frete grátis');
+  const payInfo = payLine.length ? `\n${payLine.join(' + ')}` : '';
+
+  // Build tweet respecting 280 chars (link = ~23 chars)
+  const suffix = `\n\n👉 ${link}`;
+  const LINK_COST = 23 + 4; // 👉 + space
+
+  let body;
+
+  if (name && fromTo) {
+    body = `${opener}\n${name}\n\n${fromTo}${couponLine}${payInfo}\n${sourceLabel}`;
+  } else if (name && priceLine) {
+    body = `${opener}\n${name}\n\n${priceLine}${couponLine}${payInfo}\n${sourceLabel}`;
+  } else if (name) {
+    body = `${opener}\n${name}\n${sourceLabel}`;
+  } else {
+    body = `${opener}\n${priceLine || ''}\n${sourceLabel}`;
+  }
+
+  // Trim if over limit
+  const maxBody = 280 - LINK_COST;
+  if (body.length > maxBody) {
+    const shortName = name.slice(0, 60) + (name.length > 60 ? '…' : '');
+    body = fromTo
+      ? `${opener}\n${shortName}\n\n${fromTo}${couponLine}\n${sourceLabel}`
+      : `${opener}\n${shortName}\n${priceLine}\n${sourceLabel}`;
+  }
+  if (body.length > maxBody) {
+    body = `${opener}\n${name.slice(0, 80)}…\n${sourceLabel}`;
+  }
+
+  return `${body}\n\n👉 ${link}`.trim();
 }
 
 function formatPreview(post) {
@@ -218,7 +286,7 @@ function formatPreview(post) {
 // ─── Affiliate Links ──────────────────────────────────────────
 async function generateAffiliateLink(url) {
   if (!url) return null;
-  if (/mercadolivre\.com\.br|mercadolibre\.com|meli\.store/i.test(url)) {
+  if (/mercadolivre\.com\.br|mercadolibre\.com|meli\.st|meli\.la|meli\.store|click\.mlcdn/i.test(url)) {
     try {
       const r = await axios.get('https://api.mercadolibre.com/link-building', {
         params: { tracking_id: config.affiliates.mercadolivre.trackingId, url }, timeout: 8000
@@ -240,14 +308,40 @@ async function generateAffiliateLink(url) {
 // ─── Publishers ───────────────────────────────────────────────
 const pubBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
 
+function safeMd(text) {
+  // Remove or close any unclosed markdown chars to prevent Telegram parse errors
+  return (text || '')
+    .replace(/([_*`])/g, '\\$1')  // escape special chars
+    .replace(/\\\*\\\*/g, '*')     // restore **bold** → *bold*
+    .replace(/\\\*/g, '*');        // restore *italic*
+}
+
 async function publishTelegram(text, imageUrl, groups) {
   const results = [];
   for (const g of groups) {
     try {
-      if (imageUrl) {
-        try { await pubBot.sendPhoto(g, imageUrl, { caption: text, parse_mode: 'Markdown' }); results.push({ g, ok: true }); continue; } catch (_) {}
+      // Try with Markdown first, fall back to plain text if parse error
+      const sendMsg = async (parseMode) => {
+        if (imageUrl) {
+          try {
+            await pubBot.sendPhoto(g, imageUrl, { caption: text, parse_mode: parseMode });
+            return true;
+          } catch (_) {}
+        }
+        await pubBot.sendMessage(g, text, { parse_mode: parseMode, disable_web_page_preview: false });
+        return true;
+      };
+
+      try {
+        await sendMsg('Markdown');
+      } catch (_) {
+        // Fall back to plain text if Markdown fails
+        const plain = text.replace(/[*_`]/g, '');
+        if (imageUrl) {
+          try { await pubBot.sendPhoto(g, imageUrl, { caption: plain }); results.push({ g, ok: true }); continue; } catch (_2) {}
+        }
+        await pubBot.sendMessage(g, plain, { disable_web_page_preview: false });
       }
-      await pubBot.sendMessage(g, text, { parse_mode: 'Markdown', disable_web_page_preview: false });
       results.push({ g, ok: true });
     } catch (e) { results.push({ g, ok: false, error: e.message }); }
   }
