@@ -4,7 +4,7 @@
   "description": "Bot de replicação automática de ofertas de afiliados ML/Shopee",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node index.js",
     "dev": "nodemon src/index.js"
   },
   "dependencies": {
