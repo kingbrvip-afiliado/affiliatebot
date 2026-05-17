@@ -10,7 +10,7 @@ const Database = require('better-sqlite3');
 // ─── Config ──────────────────────────────────────────────────
 const config = {
   sources: {
-    telegram: ["@wolf_ofertas","@achadinhosafiliadosss","@clubedeofertasss","@gatunopromos","@urubupromo"],
+    telegram: ["@wolf_ofertas","@achadinhosafiliadosss","@clubedeofertasss","@gatunopromos","@urubupromo","@xetdaspromocoes"],
     twitter:  ["@xetdaspromocoes","@achadinhos_dadu","@achadinhodasho","@acheinaxo","@capivarapromoss","@buscopobres","@oigatuna","@lobaopromo"]
   },
   targets: {
