@@ -187,53 +187,11 @@ function payExtras(raw = '') {
 }
 
 function formatTelegram(post, link) {
-  const name     = f(post, 'productName', 'product_name') || '';
-  const price    = f(post, 'salePrice',    'sale_price');
-  const origPrice= f(post, 'originalPrice','original_price');
-  const discount = post.discount;
-  const raw      = f(post, 'rawContent',   'raw_content') || '';
-
-  // Opener rotativo
-  const OPENERS_TG = [
-    '🔥 ACHADO DO DIA!', '⚡ CORRE QUE É POUCO!', '😱 QUE PREÇO É ESSE?!',
-    '💥 OFERTA IMPERDÍVEL!', '🤑 TÁ BARATO DEMAIS!', '🎯 OLHA SÓ ESSE PREÇO!',
-    '👀 NÃO PASSA NÃO!', '🚨 CORRE ANTES QUE ACABE!',
-  ];
-
-  // Preço
-  let priceLine = price ? `💰 ${fmtBRL(price)}` : '';
-  if (origPrice && price && origPrice > price) {
-    priceLine = `💰 ~~${fmtBRL(origPrice)}~~ → *${fmtBRL(price)}*`;
-    if (discount) priceLine += ` (*${discount}% OFF*)`;
-  }
-
-  // Parcelamento
-  const parcMatch = raw.match(/(\d+)x\s*(?:de\s*)?R?\$?\s*([\d,.]+)\s*sem juros/i)
-                 || raw.match(/(\d+)\s*x\s*(?:de\s*)?R?\$?\s*([\d,.]+)/i);
-  const parcLine  = parcMatch ? `💳 ${parcMatch[1]}x de R$ ${parcMatch[2]} sem juros` : 
-                    /sem juros/i.test(raw) ? '💳 Sem juros no cartão' : '';
-
-  // Frete
-  const freteLine = /frete gr[áa]tis|entrega gr[áa]tis|full|prime/i.test(raw) ? '🚚 Frete grátis' : '';
-
-  // Cupom
-  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{3,20})/i);
-  const couponLine  = couponMatch ? `🏷️ Cupom: \`${couponMatch[1].toUpperCase()}\`` : '';
-
-  const lines = [
-    rnd(OPENERS_TG),
-    '',
-    name ? `*${name}*` : null,
-    '',
-    priceLine || null,
-    parcLine  || null,
-    freteLine || null,
-    couponLine|| null,
-    '',
-    `👉 ${link}`,
-  ].filter(x => x !== null);
-
-  return lines.join('\n').trim();
+  const name = f(post, 'productName', 'product_name') || '';
+  const raw  = f(post, 'rawContent',  'raw_content')  || '';
+  const pb   = priceBlock(post);
+  return [rnd(OPENERS)+'!','',name?`*${name}*`:null,pb?`\n💰 ${pb}${payExtras(raw)}`:null,'',rnd(CTAS),link,'',config.footer]
+    .filter(x => x !== null).join('\n').trim();
 }
 
 function formatTwitter(post, link) {
@@ -244,74 +202,66 @@ function formatTwitter(post, link) {
   const raw      = f(post, 'rawContent',   'raw_content') || '';
   const source   = f(post, 'sourceType',   'source_type');
 
+  // Source label
+  const sourceLabel = source === 'shopee' ? 'Achado na Shopee 🟠' : 'Achado no Mercado Livre 🟡';
+
+  // Opener — rotativo e chamativo
   const OPENERS_TW = [
     '🔥 IMPERDÍVEL‼️', '⚡ CORRE‼️', '😱 QUE PREÇO‼️',
     '🚨 OFERTA URGENTE‼️', '🤑 TÁ BARATO‼️', '💥 ACHADO DO DIA‼️',
     '🎯 OLHA ESSE PREÇO‼️', '👀 NÃO PASSA NÃO‼️',
   ];
+  const opener = rnd(OPENERS_TW);
 
-  const sourceLabel = source === 'shopee' ? '🟠 Shopee' : '🟡 Mercado Livre';
-  const opener      = rnd(OPENERS_TW);
-
-  // Preço
+  // Price lines
   let priceLine = '';
+  if (price) priceLine = `R$${fmtBRL(price).replace('R$','').trim()}`;
+
+  let fromTo = '';
   if (origPrice && price && origPrice > price) {
-    priceLine = `De ${fmtBRL(origPrice)} | Por ${fmtBRL(price)}`;
-    if (discount) priceLine += ` (${discount}% OFF)`;
-  } else if (price) {
-    priceLine = fmtBRL(price);
+    fromTo = `De R$${fmtBRL(origPrice).replace('R$','').trim()} | Por R$${fmtBRL(price).replace('R$','').trim()}`;
+    if (discount) fromTo += ` (${discount}% OFF)`;
   }
 
-  // Parcelamento
-  const parcMatch = raw.match(/(\d+)x\s*(?:de\s*)?R?\$?\s*([\d,.]+)\s*sem juros/i);
-  const parcLine  = parcMatch ? `${parcMatch[1]}x R$${parcMatch[2]} sem juros` :
-                    /sem juros/i.test(raw) ? 'sem juros' : '';
+  // Coupon detection
+  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{4,20})/i);
+  const couponLine  = couponMatch ? `\nCupom: ${couponMatch[1].toUpperCase()}` : '';
 
-  // Cupom — só se existir na mensagem original
-  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{3,20})/i);
-  const couponLine  = couponMatch ? `Cupom: ${couponMatch[1].toUpperCase()}` : '';
+  // Payment info
+  const payLine = [];
+  if (/sem juros|parcelado/i.test(raw)) payLine.push('sem juros');
+  if (/frete gr[áa]tis|entrega gr[áa]tis/i.test(raw)) payLine.push('frete grátis');
+  const payInfo = payLine.length ? `\n${payLine.join(' + ')}` : '';
 
-  // No Twitter links contam como 23 chars independente do tamanho
-  const LINK_CHARS = 23;
-  const FOOTER     = `\n\n👉 ${link}`;
-  const MAX_BODY   = 280 - LINK_CHARS - 4; // 4 = "\n\n👉 "
+  // Build tweet respecting 280 chars (link = ~23 chars)
+  const suffix = `\n\n👉 ${link}`;
+  const LINK_COST = 23 + 4; // 👉 + space
 
-  // Monta o corpo tentando incluir o máximo de info
-  function buildBody(nameLen) {
-    const n = name.slice(0, nameLen);
-    return [opener, n, priceLine, parcLine, couponLine, sourceLabel]
-      .filter(Boolean).join('\n');
+  let body;
+
+  if (name && fromTo) {
+    body = `${opener}\n${name}\n\n${fromTo}${couponLine}${payInfo}\n${sourceLabel}`;
+  } else if (name && priceLine) {
+    body = `${opener}\n${name}\n\n${priceLine}${couponLine}${payInfo}\n${sourceLabel}`;
+  } else if (name) {
+    body = `${opener}\n${name}\n${sourceLabel}`;
+  } else {
+    body = `${opener}\n${priceLine || ''}\n${sourceLabel}`;
   }
 
-  let body = buildBody(120);
-
-  // Reduz nome até caber
-  let nameLen = 120;
-  while (body.length > MAX_BODY && nameLen > 20) {
-    nameLen -= 10;
-    body = buildBody(nameLen);
+  // Trim if over limit
+  const maxBody = 280 - LINK_COST;
+  if (body.length > maxBody) {
+    const shortName = name.slice(0, 60) + (name.length > 60 ? '…' : '');
+    body = fromTo
+      ? `${opener}\n${shortName}\n\n${fromTo}${couponLine}\n${sourceLabel}`
+      : `${opener}\n${shortName}\n${priceLine}\n${sourceLabel}`;
+  }
+  if (body.length > maxBody) {
+    body = `${opener}\n${name.slice(0, 80)}…\n${sourceLabel}`;
   }
 
-  // Se ainda não cabe, remove parcelamento
-  if (body.length > MAX_BODY) {
-    body = [opener, name.slice(0, nameLen), priceLine, couponLine, sourceLabel]
-      .filter(Boolean).join('\n');
-  }
-
-  // Se ainda não cabe, remove cupom
-  if (body.length > MAX_BODY) {
-    body = [opener, name.slice(0, nameLen), priceLine, sourceLabel]
-      .filter(Boolean).join('\n');
-  }
-
-  // Se ainda não cabe, corta o nome mais
-  if (body.length > MAX_BODY) {
-    const remaining = MAX_BODY - opener.length - priceLine.length - sourceLabel.length - 3;
-    body = [opener, name.slice(0, Math.max(remaining, 10)) + '…', priceLine, sourceLabel]
-      .filter(Boolean).join('\n');
-  }
-
-  return (body + FOOTER).trim();
+  return `${body}\n\n👉 ${link}`.trim();
 }
 
 function formatPreview(post) {
@@ -334,271 +284,28 @@ function formatPreview(post) {
 }
 
 // ─── Affiliate Links ──────────────────────────────────────────
-
-// Remove parâmetros de afiliado de terceiros da URL
-function cleanAffiliateParams(url) {
-  try {
-    const u = new URL(url);
-    // Remove parâmetros comuns de tracking de terceiros
-    ['tracking_id','af_id','aff_id','aff_sub','utm_source','utm_medium',
-     'utm_campaign','ref','via','partner','linkId','deal_id'].forEach(p => u.searchParams.delete(p));
-    return u.toString();
-  } catch (_) { return url; }
-}
-
-// Resolve links encurtados (meli.la, shope.ee) para URL do produto
-async function resolveShortLink(url) {
-  try {
-    const r = await axios.get(url, {
-      maxRedirects: 10,
-      timeout: 10000,
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      validateStatus: () => true,
-    });
-    const finalUrl = r.request?.res?.responseUrl || r.config?.url || url;
-    return finalUrl !== url ? finalUrl : url;
-  } catch (_) { return url; }
-}
-
 async function generateAffiliateLink(url) {
   if (!url) return null;
-
-  const isML     = /mercadolivre\.com\.br|mercadolibre\.com|meli\.la|meli\.st|meli\.store|click\.mlcdn/i.test(url);
-  const isShopee = /shopee\.com\.br|shope\.ee|s\.shopee\.com\.br/i.test(url);
-
-  if (isML) {
-    // 1. Resolve link encurtado se necessário
-    let resolvedUrl = url;
-    if (/meli\.la|meli\.st/i.test(url)) {
-      resolvedUrl = await resolveShortLink(url);
-      console.log('[ML] Link resolvido:', resolvedUrl);
-    }
-
-    // 2. Limpa parâmetros de afiliado de terceiros
-    const cleanUrl = cleanAffiliateParams(resolvedUrl);
-
-    // 3. Tenta gerar via API do ML com SEU tracking_id
+  if (/mercadolivre\.com\.br|mercadolibre\.com|meli\.st|meli\.la|meli\.store|click\.mlcdn/i.test(url)) {
     try {
       const r = await axios.get('https://api.mercadolibre.com/link-building', {
-        params: { tracking_id: config.affiliates.mercadolivre.trackingId, url: cleanUrl },
-        timeout: 8000,
+        params: { tracking_id: config.affiliates.mercadolivre.trackingId, url }, timeout: 8000
       });
-      if (r.data?.url || r.data?.link) {
-        const affiliateUrl = r.data.url || r.data.link;
-        // Encurta o link com seu tracking
-        const shortUrl = await shortenMLLink(affiliateUrl);
-        console.log('[ML] Link encurtado:', shortUrl);
-        return shortUrl;
-      }
+      if (r.data?.url || r.data?.link) return r.data.url || r.data.link;
     } catch (_) {}
-
-    // 4. Fallback: adiciona seu tracking_id e encurta
     try {
-      const u = new URL(cleanUrl);
-      u.searchParams.set('tracking_id', config.affiliates.mercadolivre.trackingId);
-      const shortUrl = await shortenMLLink(u.toString());
-      return shortUrl;
-    } catch (_) {
-      return cleanUrl + '?tracking_id=' + config.affiliates.mercadolivre.trackingId;
-    }
+      const u = new URL(url); u.searchParams.set('tracking_id', config.affiliates.mercadolivre.trackingId); return u.toString();
+    } catch (_) { return url + '?tracking_id=' + config.affiliates.mercadolivre.trackingId; }
   }
-
-  if (isShopee) {
-    // 1. Resolve link encurtado se necessário
-    let resolvedUrl = url;
-    if (/shope\.ee|s\.shopee/i.test(url)) {
-      resolvedUrl = await resolveShortLink(url);
-      console.log('[SHOPEE] Link resolvido:', resolvedUrl);
-    }
-
-    // 2. Limpa parâmetros de afiliado de terceiros
-    const cleanUrl = cleanAffiliateParams(resolvedUrl);
-
-    // 3. Adiciona SEU affiliate ID
+  if (/shopee\.com\.br|shope\.ee/i.test(url)) {
     try {
-      const u = new URL(cleanUrl);
-      u.searchParams.set('af_id', config.affiliates.shopee.affiliateId);
-      return u.toString();
-    } catch (_) {
-      return cleanUrl + '?af_id=' + config.affiliates.shopee.affiliateId;
-    }
+      const u = new URL(url); u.searchParams.set('af_id', config.affiliates.shopee.affiliateId); return u.toString();
+    } catch (_) { return url + '?af_id=' + config.affiliates.shopee.affiliateId; }
   }
-
   return url;
 }
 
-// ─── Encurtador de links ML ───────────────────────────────────
-async function shortenMLLink(longUrl) {
-  try {
-    // API pública do ML para encurtar links com tracking
-    const r = await axios.post(
-      'https://api.mercadolibre.com/link-building/shorten',
-      { url: longUrl },
-      {
-        params: { tracking_id: config.affiliates.mercadolivre.trackingId },
-        timeout: 8000,
-      }
-    );
-    if (r.data?.short_url) return r.data.short_url;
-    if (r.data?.url)       return r.data.url;
-  } catch (_) {}
-
-  // Fallback: usa link-building normal que às vezes já retorna curto
-  try {
-    const r = await axios.get('https://api.mercadolibre.com/link-building', {
-      params: { tracking_id: config.affiliates.mercadolivre.trackingId, url: longUrl },
-      timeout: 8000,
-    });
-    const result = r.data?.url || r.data?.link;
-    if (result) return result;
-  } catch (_) {}
-
-  return longUrl; // fallback para o link longo
-}
-
-
-let mlAccessToken = process.env.ML_ACCESS_TOKEN || null;
-
-async function refreshMLToken() {
-  try {
-    const r = await axios.post('https://api.mercadolibre.com/oauth/token', null, {
-      params: {
-        grant_type:    'refresh_token',
-        client_id:     process.env.ML_CLIENT_ID,
-        client_secret: process.env.ML_CLIENT_SECRET,
-        refresh_token: process.env.ML_REFRESH_TOKEN,
-      },
-      timeout: 8000,
-    });
-    if (r.data?.access_token) {
-      mlAccessToken = r.data.access_token;
-      console.log('[ML] Token renovado com sucesso');
-    }
-  } catch (e) {
-    console.warn('[ML] Erro ao renovar token:', e.message);
-  }
-}
-
-async function generateMLShortLink(originalUrl) {
-  if (!mlAccessToken) return null;
-  try {
-    const r = await axios.post(
-      'https://api.mercadolibre.com/affiliates/links',
-      { url: originalUrl },
-      {
-        headers: {
-          Authorization: `Bearer ${mlAccessToken}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 8000,
-      }
-    );
-    return r.data?.short_url || r.data?.link || null;
-  } catch (e) {
-    // Token expirado — tenta renovar e tentar de novo
-    if (e.response?.status === 401) {
-      await refreshMLToken();
-      try {
-        const r2 = await axios.post(
-          'https://api.mercadolibre.com/affiliates/links',
-          { url: originalUrl },
-          {
-            headers: {
-              Authorization: `Bearer ${mlAccessToken}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: 8000,
-          }
-        );
-        return r2.data?.short_url || r2.data?.link || null;
-      } catch (_) {}
-    }
-    console.warn('[ML] Erro ao gerar link encurtado:', e.message);
-    return null;
-  }
-}
-
-
-async function fetchMLProductImage(url) {
-  try {
-    // Resolve meli.la / meli.st para URL completa se necessário
-    let resolvedUrl = url;
-    if (/meli\.la|meli\.st/i.test(url)) {
-      try {
-        const r = await axios.get(url, { maxRedirects: 5, timeout: 8000 });
-        resolvedUrl = r.request?.res?.responseUrl || r.config?.url || url;
-      } catch (_) {}
-    }
-
-    // Extrai o ID do produto (MLB123456789)
-    const idMatch = resolvedUrl.match(/MLB-?(\d+)/i);
-    if (!idMatch) return null;
-
-    const itemId = `MLB${idMatch[1]}`;
-    const r = await axios.get(`https://api.mercadolibre.com/items/${itemId}`, { timeout: 8000 });
-
-    // Pega a foto de maior resolução disponível
-    const pictures = r.data?.pictures || [];
-    if (pictures.length > 0) {
-      // ML usa sufixos: -I (intermediate), -O (original/max), -F (full)
-      const bestUrl = pictures[0].url || pictures[0].secure_url || '';
-      return bestUrl
-        .replace(/-[A-Z]\.jpg$/i, '-O.jpg')  // força resolução máxima
-        .replace('http://', 'https://');       // garante HTTPS
-    }
-
-    // Fallback para thumbnail em alta resolução
-    const thumb = r.data?.thumbnail || '';
-    return thumb.replace(/-[A-Z]\.jpg$/i, '-O.jpg').replace('http://', 'https://') || null;
-  } catch (_) {}
-  return null;
-}
-
-async function fetchShopeeProductImage(url) {
-  try {
-    // Resolve link encurtado se necessário
-    let resolvedUrl = url;
-    if (/shope\.ee|s\.shopee/i.test(url)) {
-      try {
-        const r = await axios.get(url, { maxRedirects: 5, timeout: 8000 });
-        resolvedUrl = r.request?.res?.responseUrl || r.config?.url || url;
-      } catch (_) {}
-    }
-
-    // Extrai shopId e itemId da URL
-    const match = resolvedUrl.match(/i\.(\d+)\.(\d+)/);
-    if (!match) return null;
-    const [, shopId, itemId] = match;
-
-    const r = await axios.get(
-      `https://shopee.com.br/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`,
-      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, timeout: 8000 }
-    );
-
-    const imgHash = r.data?.data?.image || r.data?.data?.images?.[0];
-    if (imgHash) {
-      // Shopee serve imagens em alta resolução com esse padrão
-      return `https://cf.shopee.com.br/file/${imgHash}_tn`;
-    }
-  } catch (_) {}
-  return null;
-}
-
-async function fetchProductImage(post) {
-  // Se já tem imagem, usa ela
-  const existingImage = f(post, 'imageUrl', 'image_url');
-  if (existingImage) return existingImage;
-
-  // Tenta buscar via API
-  const link = f(post, 'originalLink', 'original_link') || '';
-  const sourceType = f(post, 'sourceType', 'source_type');
-
-  if (sourceType === 'mercadolivre') return await fetchMLProductImage(link);
-  if (sourceType === 'shopee')       return await fetchShopeeProductImage(link);
-  return null;
-}
-
-
+// ─── Publishers ───────────────────────────────────────────────
 const pubBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
 
 function safeMd(text) {
@@ -807,27 +514,8 @@ approvalBot.on('callback_query', async (q) => {
     return;
   }
   if (action === 'approve') {
-    const pid    = parts[1];
-    const ptype  = parts[2];
-    const hasT   = config.targets.twitterEnabled;
-    const hasG   = config.targets.telegramGroups.length > 0;
-
-    // Gera o link de afiliado automaticamente
-    const post = getPost(pid, ptype);
-    const affiliateLink = await generateAffiliateLink(post?.original_link);
-    updatePost(pid, ptype, 'approved', { affiliateLink: affiliateLink || '' });
-    setBotState(chatId, 'waiting_channels', pid, ptype);
-
-    const btns = [];
-    if (hasT && hasG) {
-      btns.push([{ text: '𝕏 Twitter + ✈ Telegram', callback_data: `ch:${pid}:${ptype}:T1G1` }]);
-      btns.push([{ text: '𝕏 Só Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }, { text: '✈ Só Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
-    } else if (hasT) {
-      btns.push([{ text: '𝕏 Publicar no Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }]);
-    } else {
-      btns.push([{ text: '✈ Publicar no Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
-    }
-    await approvalBot.sendMessage(chatId, '📣 *Onde publicar?*', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
+    setBotState(chatId, 'waiting_link', parts[1], parts[2]);
+    await approvalBot.sendMessage(chatId, '🔗 *Manda seu link de afiliado* (ou `.` para usar o link original):',{ parse_mode: 'Markdown' });
     return;
   }
   if (action === 'ch') {
@@ -839,6 +527,28 @@ approvalBot.on('message', async (msg) => {
   const chatId = String(msg.chat.id);
   if (chatId !== String(ADMIN)) { if (msg.text === '/start') await approvalBot.sendMessage(chatId, '⛔ Sem permissão.'); return; }
   if (msg.text?.startsWith('/')) { await handleCmd(msg); return; }
+
+  const state = getBotState(chatId);
+  if (!state || state.state !== 'waiting_link') return;
+
+  const afl = msg.text?.trim() === '.' ? '' : msg.text?.trim();
+  updatePost(state.pending_post_id, state.pending_source_type, 'approved', { affiliateLink: afl });
+  setBotState(chatId, 'waiting_channels', state.pending_post_id, state.pending_source_type);
+
+  const hasT = config.targets.twitterEnabled;
+  const hasG = config.targets.telegramGroups.length > 0;
+  const pid  = state.pending_post_id;
+  const ptype = state.pending_source_type;
+  const btns = [];
+  if (hasT && hasG) {
+    btns.push([{ text: '𝕏 Twitter + ✈ Telegram', callback_data: `ch:${pid}:${ptype}:T1G1` }]);
+    btns.push([{ text: '𝕏 Só Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }, { text: '✈ Só Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
+  } else if (hasT) {
+    btns.push([{ text: '𝕏 Publicar no Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }]);
+  } else {
+    btns.push([{ text: '✈ Publicar no Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
+  }
+  await approvalBot.sendMessage(chatId, '📣 *Onde publicar?*', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
 });
 
 approvalBot.on('polling_error', (e) => console.error('[BOT] Polling error:', e.message));
@@ -848,30 +558,18 @@ async function doPublish(chatId, postId, sourceType, useTwitter, useTelegram) {
   const post = getPost(postId, sourceType);
   if (!post) { await approvalBot.sendMessage(chatId, '⚠️ Post não encontrado.'); return; }
 
-  // Se o usuário colou um link de afiliado, usa ele direto sem modificar
-  // Só gera automaticamente se não tiver link personalizado
-  let link;
-  if (post.affiliate_link && post.affiliate_link.trim() !== '') {
-    link = post.affiliate_link.trim();
-    console.log('[PUBLISH] Usando link do usuário:', link);
-  } else {
-    link = await generateAffiliateLink(post.original_link);
-    console.log('[PUBLISH] Usando link gerado automaticamente:', link);
-  }
-
-  // Busca foto — usa a do post ou busca automaticamente via API
-  const imageUrl = await fetchProductImage(post);
-
+  const rawLink = post.affiliate_link || post.original_link;
+  const link    = await generateAffiliateLink(rawLink);
   let ok = 0; const errs = [];
 
   if (useTelegram && config.targets.telegramGroups.length > 0) {
     const text = formatTelegram(post, link);
-    const res  = await publishTelegram(text, imageUrl, config.targets.telegramGroups);
+    const res  = await publishTelegram(text, post.image_url, config.targets.telegramGroups);
     res.forEach(r => { if (r.ok) ok++; else errs.push(`Telegram ${r.g}: ${r.error}`); });
   }
   if (useTwitter && config.targets.twitterEnabled) {
     const text = formatTwitter(post, link);
-    const res  = await publishTwitter(text, imageUrl);
+    const res  = await publishTwitter(text, post.image_url);
     if (res.ok) ok++; else errs.push(`Twitter: ${res.error}`);
   }
 
