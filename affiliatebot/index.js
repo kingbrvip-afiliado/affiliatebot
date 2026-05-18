@@ -691,8 +691,27 @@ approvalBot.on('callback_query', async (q) => {
     return;
   }
   if (action === 'approve') {
-    setBotState(chatId, 'waiting_link', parts[1], parts[2]);
-    await approvalBot.sendMessage(chatId, '🔗 *Manda seu link de afiliado* (ou `.` para usar o link original):',{ parse_mode: 'Markdown' });
+    const pid    = parts[1];
+    const ptype  = parts[2];
+    const hasT   = config.targets.twitterEnabled;
+    const hasG   = config.targets.telegramGroups.length > 0;
+
+    // Gera o link de afiliado automaticamente
+    const post = getPost(pid, ptype);
+    const affiliateLink = await generateAffiliateLink(post?.original_link);
+    updatePost(pid, ptype, 'approved', { affiliateLink: affiliateLink || '' });
+    setBotState(chatId, 'waiting_channels', pid, ptype);
+
+    const btns = [];
+    if (hasT && hasG) {
+      btns.push([{ text: '𝕏 Twitter + ✈ Telegram', callback_data: `ch:${pid}:${ptype}:T1G1` }]);
+      btns.push([{ text: '𝕏 Só Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }, { text: '✈ Só Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
+    } else if (hasT) {
+      btns.push([{ text: '𝕏 Publicar no Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }]);
+    } else {
+      btns.push([{ text: '✈ Publicar no Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
+    }
+    await approvalBot.sendMessage(chatId, '📣 *Onde publicar?*', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
     return;
   }
   if (action === 'ch') {
@@ -704,28 +723,6 @@ approvalBot.on('message', async (msg) => {
   const chatId = String(msg.chat.id);
   if (chatId !== String(ADMIN)) { if (msg.text === '/start') await approvalBot.sendMessage(chatId, '⛔ Sem permissão.'); return; }
   if (msg.text?.startsWith('/')) { await handleCmd(msg); return; }
-
-  const state = getBotState(chatId);
-  if (!state || state.state !== 'waiting_link') return;
-
-  const afl = msg.text?.trim() === '.' ? '' : msg.text?.trim();
-  updatePost(state.pending_post_id, state.pending_source_type, 'approved', { affiliateLink: afl });
-  setBotState(chatId, 'waiting_channels', state.pending_post_id, state.pending_source_type);
-
-  const hasT = config.targets.twitterEnabled;
-  const hasG = config.targets.telegramGroups.length > 0;
-  const pid  = state.pending_post_id;
-  const ptype = state.pending_source_type;
-  const btns = [];
-  if (hasT && hasG) {
-    btns.push([{ text: '𝕏 Twitter + ✈ Telegram', callback_data: `ch:${pid}:${ptype}:T1G1` }]);
-    btns.push([{ text: '𝕏 Só Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }, { text: '✈ Só Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
-  } else if (hasT) {
-    btns.push([{ text: '𝕏 Publicar no Twitter', callback_data: `ch:${pid}:${ptype}:T1G0` }]);
-  } else {
-    btns.push([{ text: '✈ Publicar no Telegram', callback_data: `ch:${pid}:${ptype}:T0G1` }]);
-  }
-  await approvalBot.sendMessage(chatId, '📣 *Onde publicar?*', { parse_mode: 'Markdown', reply_markup: { inline_keyboard: btns } });
 });
 
 approvalBot.on('polling_error', (e) => console.error('[BOT] Polling error:', e.message));
