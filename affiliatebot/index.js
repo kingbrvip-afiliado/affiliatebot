@@ -187,11 +187,53 @@ function payExtras(raw = '') {
 }
 
 function formatTelegram(post, link) {
-  const name = f(post, 'productName', 'product_name') || '';
-  const raw  = f(post, 'rawContent',  'raw_content')  || '';
-  const pb   = priceBlock(post);
-  return [rnd(OPENERS)+'!','',name?`*${name}*`:null,pb?`\n💰 ${pb}${payExtras(raw)}`:null,'',rnd(CTAS),link,'',config.footer]
-    .filter(x => x !== null).join('\n').trim();
+  const name     = f(post, 'productName', 'product_name') || '';
+  const price    = f(post, 'salePrice',    'sale_price');
+  const origPrice= f(post, 'originalPrice','original_price');
+  const discount = post.discount;
+  const raw      = f(post, 'rawContent',   'raw_content') || '';
+
+  // Opener rotativo
+  const OPENERS_TG = [
+    '🔥 ACHADO DO DIA!', '⚡ CORRE QUE É POUCO!', '😱 QUE PREÇO É ESSE?!',
+    '💥 OFERTA IMPERDÍVEL!', '🤑 TÁ BARATO DEMAIS!', '🎯 OLHA SÓ ESSE PREÇO!',
+    '👀 NÃO PASSA NÃO!', '🚨 CORRE ANTES QUE ACABE!',
+  ];
+
+  // Preço
+  let priceLine = price ? `💰 ${fmtBRL(price)}` : '';
+  if (origPrice && price && origPrice > price) {
+    priceLine = `💰 ~~${fmtBRL(origPrice)}~~ → *${fmtBRL(price)}*`;
+    if (discount) priceLine += ` (*${discount}% OFF*)`;
+  }
+
+  // Parcelamento
+  const parcMatch = raw.match(/(\d+)x\s*(?:de\s*)?R?\$?\s*([\d,.]+)\s*sem juros/i)
+                 || raw.match(/(\d+)\s*x\s*(?:de\s*)?R?\$?\s*([\d,.]+)/i);
+  const parcLine  = parcMatch ? `💳 ${parcMatch[1]}x de R$ ${parcMatch[2]} sem juros` : 
+                    /sem juros/i.test(raw) ? '💳 Sem juros no cartão' : '';
+
+  // Frete
+  const freteLine = /frete gr[áa]tis|entrega gr[áa]tis|full|prime/i.test(raw) ? '🚚 Frete grátis' : '';
+
+  // Cupom
+  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{3,20})/i);
+  const couponLine  = couponMatch ? `🏷️ Cupom: \`${couponMatch[1].toUpperCase()}\`` : '';
+
+  const lines = [
+    rnd(OPENERS_TG),
+    '',
+    name ? `*${name}*` : null,
+    '',
+    priceLine || null,
+    parcLine  || null,
+    freteLine || null,
+    couponLine|| null,
+    '',
+    `👉 ${link}`,
+  ].filter(x => x !== null);
+
+  return lines.join('\n').trim();
 }
 
 function formatTwitter(post, link) {
@@ -202,66 +244,59 @@ function formatTwitter(post, link) {
   const raw      = f(post, 'rawContent',   'raw_content') || '';
   const source   = f(post, 'sourceType',   'source_type');
 
-  // Source label
-  const sourceLabel = source === 'shopee' ? 'Achado na Shopee 🟠' : 'Achado no Mercado Livre 🟡';
-
-  // Opener — rotativo e chamativo
   const OPENERS_TW = [
     '🔥 IMPERDÍVEL‼️', '⚡ CORRE‼️', '😱 QUE PREÇO‼️',
     '🚨 OFERTA URGENTE‼️', '🤑 TÁ BARATO‼️', '💥 ACHADO DO DIA‼️',
     '🎯 OLHA ESSE PREÇO‼️', '👀 NÃO PASSA NÃO‼️',
   ];
-  const opener = rnd(OPENERS_TW);
 
-  // Price lines
+  const sourceLabel = source === 'shopee' ? '🟠 Shopee' : '🟡 Mercado Livre';
+
+  // Preço
   let priceLine = '';
-  if (price) priceLine = `R$${fmtBRL(price).replace('R$','').trim()}`;
-
-  let fromTo = '';
   if (origPrice && price && origPrice > price) {
-    fromTo = `De R$${fmtBRL(origPrice).replace('R$','').trim()} | Por R$${fmtBRL(price).replace('R$','').trim()}`;
-    if (discount) fromTo += ` (${discount}% OFF)`;
+    priceLine = `De ${fmtBRL(origPrice)} | Por ${fmtBRL(price)}`;
+    if (discount) priceLine += ` (${discount}% OFF)`;
+  } else if (price) {
+    priceLine = fmtBRL(price);
   }
 
-  // Coupon detection
-  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{4,20})/i);
-  const couponLine  = couponMatch ? `\nCupom: ${couponMatch[1].toUpperCase()}` : '';
+  // Parcelamento
+  const parcMatch = raw.match(/(\d+)x\s*(?:de\s*)?R?\$?\s*([\d,.]+)\s*sem juros/i);
+  const parcLine  = parcMatch ? `${parcMatch[1]}x R$${parcMatch[2]} sem juros` :
+                    /sem juros/i.test(raw) ? 'sem juros' : '';
 
-  // Payment info
-  const payLine = [];
-  if (/sem juros|parcelado/i.test(raw)) payLine.push('sem juros');
-  if (/frete gr[áa]tis|entrega gr[áa]tis/i.test(raw)) payLine.push('frete grátis');
-  const payInfo = payLine.length ? `\n${payLine.join(' + ')}` : '';
+  // Cupom
+  const couponMatch = raw.match(/(?:cupom|coupon|código|promo)[\s:]+([A-Z0-9]{3,20})/i);
+  const couponLine  = couponMatch ? `Cupom: ${couponMatch[1].toUpperCase()}` : '';
 
-  // Build tweet respecting 280 chars (link = ~23 chars)
-  const suffix = `\n\n👉 ${link}`;
-  const LINK_COST = 23 + 4; // 👉 + space
+  // Monta o tweet
+  const parts = [
+    rnd(OPENERS_TW),
+    name ? name.slice(0, 80) : null,
+    priceLine || null,
+    parcLine  || null,
+    couponLine|| null,
+    sourceLabel,
+    `\n👉 ${link}`,
+  ].filter(Boolean);
 
-  let body;
+  let tweet = parts.join('\n');
 
-  if (name && fromTo) {
-    body = `${opener}\n${name}\n\n${fromTo}${couponLine}${payInfo}\n${sourceLabel}`;
-  } else if (name && priceLine) {
-    body = `${opener}\n${name}\n\n${priceLine}${couponLine}${payInfo}\n${sourceLabel}`;
-  } else if (name) {
-    body = `${opener}\n${name}\n${sourceLabel}`;
-  } else {
-    body = `${opener}\n${priceLine || ''}\n${sourceLabel}`;
+  // Garante 280 chars (link conta como 23)
+  if (tweet.length > 280) {
+    const shortName = name.slice(0, 50) + (name.length > 50 ? '…' : '');
+    tweet = [
+      rnd(OPENERS_TW),
+      shortName,
+      priceLine || null,
+      couponLine|| null,
+      sourceLabel,
+      `\n👉 ${link}`,
+    ].filter(Boolean).join('\n');
   }
 
-  // Trim if over limit
-  const maxBody = 280 - LINK_COST;
-  if (body.length > maxBody) {
-    const shortName = name.slice(0, 60) + (name.length > 60 ? '…' : '');
-    body = fromTo
-      ? `${opener}\n${shortName}\n\n${fromTo}${couponLine}\n${sourceLabel}`
-      : `${opener}\n${shortName}\n${priceLine}\n${sourceLabel}`;
-  }
-  if (body.length > maxBody) {
-    body = `${opener}\n${name.slice(0, 80)}…\n${sourceLabel}`;
-  }
-
-  return `${body}\n\n👉 ${link}`.trim();
+  return tweet.trim();
 }
 
 function formatPreview(post) {
@@ -305,7 +340,149 @@ async function generateAffiliateLink(url) {
   return url;
 }
 
-// ─── Publishers ───────────────────────────────────────────────
+// ─── ML Link Encurtado ───────────────────────────────────────
+let mlAccessToken = process.env.ML_ACCESS_TOKEN || null;
+
+async function refreshMLToken() {
+  try {
+    const r = await axios.post('https://api.mercadolibre.com/oauth/token', null, {
+      params: {
+        grant_type:    'refresh_token',
+        client_id:     process.env.ML_CLIENT_ID,
+        client_secret: process.env.ML_CLIENT_SECRET,
+        refresh_token: process.env.ML_REFRESH_TOKEN,
+      },
+      timeout: 8000,
+    });
+    if (r.data?.access_token) {
+      mlAccessToken = r.data.access_token;
+      console.log('[ML] Token renovado com sucesso');
+    }
+  } catch (e) {
+    console.warn('[ML] Erro ao renovar token:', e.message);
+  }
+}
+
+async function generateMLShortLink(originalUrl) {
+  if (!mlAccessToken) return null;
+  try {
+    const r = await axios.post(
+      'https://api.mercadolibre.com/affiliates/links',
+      { url: originalUrl },
+      {
+        headers: {
+          Authorization: `Bearer ${mlAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 8000,
+      }
+    );
+    return r.data?.short_url || r.data?.link || null;
+  } catch (e) {
+    // Token expirado — tenta renovar e tentar de novo
+    if (e.response?.status === 401) {
+      await refreshMLToken();
+      try {
+        const r2 = await axios.post(
+          'https://api.mercadolibre.com/affiliates/links',
+          { url: originalUrl },
+          {
+            headers: {
+              Authorization: `Bearer ${mlAccessToken}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 8000,
+          }
+        );
+        return r2.data?.short_url || r2.data?.link || null;
+      } catch (_) {}
+    }
+    console.warn('[ML] Erro ao gerar link encurtado:', e.message);
+    return null;
+  }
+}
+
+
+async function fetchMLProductImage(url) {
+  try {
+    // Resolve meli.la / meli.st para URL completa se necessário
+    let resolvedUrl = url;
+    if (/meli\.la|meli\.st/i.test(url)) {
+      try {
+        const r = await axios.get(url, { maxRedirects: 5, timeout: 8000 });
+        resolvedUrl = r.request?.res?.responseUrl || r.config?.url || url;
+      } catch (_) {}
+    }
+
+    // Extrai o ID do produto (MLB123456789)
+    const idMatch = resolvedUrl.match(/MLB-?(\d+)/i);
+    if (!idMatch) return null;
+
+    const itemId = `MLB${idMatch[1]}`;
+    const r = await axios.get(`https://api.mercadolibre.com/items/${itemId}`, { timeout: 8000 });
+
+    // Pega a foto de maior resolução disponível
+    const pictures = r.data?.pictures || [];
+    if (pictures.length > 0) {
+      // ML usa sufixos: -I (intermediate), -O (original/max), -F (full)
+      const bestUrl = pictures[0].url || pictures[0].secure_url || '';
+      return bestUrl
+        .replace(/-[A-Z]\.jpg$/i, '-O.jpg')  // força resolução máxima
+        .replace('http://', 'https://');       // garante HTTPS
+    }
+
+    // Fallback para thumbnail em alta resolução
+    const thumb = r.data?.thumbnail || '';
+    return thumb.replace(/-[A-Z]\.jpg$/i, '-O.jpg').replace('http://', 'https://') || null;
+  } catch (_) {}
+  return null;
+}
+
+async function fetchShopeeProductImage(url) {
+  try {
+    // Resolve link encurtado se necessário
+    let resolvedUrl = url;
+    if (/shope\.ee|s\.shopee/i.test(url)) {
+      try {
+        const r = await axios.get(url, { maxRedirects: 5, timeout: 8000 });
+        resolvedUrl = r.request?.res?.responseUrl || r.config?.url || url;
+      } catch (_) {}
+    }
+
+    // Extrai shopId e itemId da URL
+    const match = resolvedUrl.match(/i\.(\d+)\.(\d+)/);
+    if (!match) return null;
+    const [, shopId, itemId] = match;
+
+    const r = await axios.get(
+      `https://shopee.com.br/api/v4/item/get?itemid=${itemId}&shopid=${shopId}`,
+      { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }, timeout: 8000 }
+    );
+
+    const imgHash = r.data?.data?.image || r.data?.data?.images?.[0];
+    if (imgHash) {
+      // Shopee serve imagens em alta resolução com esse padrão
+      return `https://cf.shopee.com.br/file/${imgHash}_tn`;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function fetchProductImage(post) {
+  // Se já tem imagem, usa ela
+  const existingImage = f(post, 'imageUrl', 'image_url');
+  if (existingImage) return existingImage;
+
+  // Tenta buscar via API
+  const link = f(post, 'originalLink', 'original_link') || '';
+  const sourceType = f(post, 'sourceType', 'source_type');
+
+  if (sourceType === 'mercadolivre') return await fetchMLProductImage(link);
+  if (sourceType === 'shopee')       return await fetchShopeeProductImage(link);
+  return null;
+}
+
+
 const pubBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
 
 function safeMd(text) {
@@ -558,18 +735,30 @@ async function doPublish(chatId, postId, sourceType, useTwitter, useTelegram) {
   const post = getPost(postId, sourceType);
   if (!post) { await approvalBot.sendMessage(chatId, '⚠️ Post não encontrado.'); return; }
 
-  const rawLink = post.affiliate_link || post.original_link;
-  const link    = await generateAffiliateLink(rawLink);
+  // Se o usuário colou um link de afiliado, usa ele direto sem modificar
+  // Só gera automaticamente se não tiver link personalizado
+  let link;
+  if (post.affiliate_link && post.affiliate_link.trim() !== '') {
+    link = post.affiliate_link.trim();
+    console.log('[PUBLISH] Usando link do usuário:', link);
+  } else {
+    link = await generateAffiliateLink(post.original_link);
+    console.log('[PUBLISH] Usando link gerado automaticamente:', link);
+  }
+
+  // Busca foto — usa a do post ou busca automaticamente via API
+  const imageUrl = await fetchProductImage(post);
+
   let ok = 0; const errs = [];
 
   if (useTelegram && config.targets.telegramGroups.length > 0) {
     const text = formatTelegram(post, link);
-    const res  = await publishTelegram(text, post.image_url, config.targets.telegramGroups);
+    const res  = await publishTelegram(text, imageUrl, config.targets.telegramGroups);
     res.forEach(r => { if (r.ok) ok++; else errs.push(`Telegram ${r.g}: ${r.error}`); });
   }
   if (useTwitter && config.targets.twitterEnabled) {
     const text = formatTwitter(post, link);
-    const res  = await publishTwitter(text, post.image_url);
+    const res  = await publishTwitter(text, imageUrl);
     if (res.ok) ok++; else errs.push(`Twitter: ${res.error}`);
   }
 
